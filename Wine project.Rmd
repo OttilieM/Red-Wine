@@ -1,0 +1,653 @@
+---
+title: "Reviewing the Quality of Portuguese Wine based on Chemical Factors"
+author: "20318500"
+date: "25/11/2020"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r, echo=FALSE, include=FALSE} 
+library(ggplot2)
+library(corrplot)
+library(leaps)
+library(tree)
+library(randomForest)
+library(gbm)
+library(forcats)
+library(tidyverse)
+
+setwd("~/Data Science/C7081 - Statistical analysis for data science/Assessment")
+my_data <- read.csv("winequality-whiteandred.csv")
+fix(my_data)
+```
+# Background
+Europe has the most established wine market and remains the world’s consumption centre, consuming more than 50% of the total volume of wine (Elfman, 2020). Portuguese wine has become increasingly popular and is now the world’s 9th largest wine exporter (ViniPortugal, 2020). Wine is considered a “luxury” good and carries certain connotation of success in business and for pleasure. Determining wine quality is therefore very important.
+
+Wine quality is a subjective factor based on personal taste and is particularly difficult to pinpoint. Marketing academics have led to a focus on perceived quality rather than actual quality (Oude Ophuis & van Trijp, 1995). Perceived quality is the “customers perception of the overall quality of a product with respect to its intended purpose, relative to alternatives” (Aaker, 1991). For the purpose of this study, the quality of the wine is based on experts’ opinions, scored on a scale 0 (very bad) – 10 (very good).
+
+Many studies have been undertaken which studies wine quality based on the relationship to purchase (Botonaki & Tsakiridou, 2004), but not considering the chemical factors.
+
+Wine is made up of thousands of compounds which originate from the grapes they are made from and from the wine making process. The process and grapes differ in the production of red and white wines. Red wine is made from dark red or black grapes and the skins are kept on during the fermentation process. White wine is primarily made with white grapes and the skins are removed before fermentation. These differences during the making process affects the chemical components of the wine. (Puckette, 2017)
+
+The present report considers wine quality from an expert’s perspective and specifically examines whether we can predict wine quality based on chemical factors. The report will also study if there is a significant difference between chemical components in red and white wine. 
+
+### Objectives
+
+* Predict the quality of wine and determine the best model  
+* Determine which chemical components influence wine quality  
+* Are the chemical components affecting wine quality the same in red and white wine?  
+
+# Methods
+
+### Data set
+
+```{r, echo=FALSE, include=FALSE}
+names(my_data)
+dim(my_data)
+```
+
+The data set is made up of 6498 rows, each of which represent a different Portuguese wine, and 13 columns which include the wine type, chemical factors of each wine and the quality. 
+
+The variable names are:  
+1. Type – wine type, either red or white  
+2. Fixed acidity - acids involved with wine that do not evaporate readily (g/dm^3)  
+3. Volatile acid - the amount of acetic acid, related to creating a vinegar taste (g/dm^3)  
+4. Citric acid - citric acid found I small quantities can add freshness (g/dm^3)  
+5. Residual sugar - the amount of sugar remaining after fermentation stops (g/dm^3)  
+6. Chlorides - the amount of salt in wine (g/dm^3)  
+7. Free sulfur dioxide - the free form of SO2 exists (g/dm^3)  
+8. Total sulfur dioxide - amount of free and bound forms of SO2 (g/dm^3)  
+9. Density - the density of wine is close to that of water depending on alcohol and sugar content (g/cm^3)  
+10. pH - describes how acidic (0) or alkaline (14) the wine is  
+11. Sulphates - additive to wine which can contribute to SO2 levels (g/dm^3)  
+12. Alcohol - the amount of alcohol in wine (% by volume)  
+13. Quality - the quality of wine on a scale from 0-10  
+
+### Data preparation and exploratory data analysis
+
+It is important to gain an understanding of the data itself and to test hypothesis. This involves examining numerical summaries and graphing data. It also gives the opportunities to highlight any outliers or missing values that may affect further analysis of the data. 
+Data was processed initially to see if there were any missing values or zero values. 
+```{r, echo=FALSE, include=FALSE}
+sum(is.na(my_data)) #no missing data
+```
+The data was split by type (red and white) to allow for further analysis between them.
+```{r, echo=F, include=FALSE}
+#Split data by type
+type <- split(my_data, my_data$type)
+str(type)
+white <- type$white
+white <- type$white[,2:13]
+red <- type$red
+red <- type$red[,2:13]
+```
+
+Histograms are the best way for showing the spread of data and is easily compared between the types of wine. Boxplots were also explored for displaying the spread of data, however, they did not show the results as clearly.
+
+Correlograms are graphs which summaries the correlations between each variable by creating a correlation matrix. They are very useful to highlight the most correlated variables, which are determined by colour. In this case we were interested in how variables correlated with quality. (Friendly, 2002) Corrographs were done using the “corrplot” package in R (Kuhn, 2008).
+
+Training data and test data were created using a 70%:30% split.
+```{r, echo=FALSE, include=FALSE}
+set.seed(1)
+pd <- sample(2, nrow(my_data), replace = T, prob = c(0.7, 0.3))
+train <- my_data[pd==1,]
+test <- my_data[pd==2,]
+```
+### Calculating success rate
+
+For each model the Root Mean Square Error (RMSE) was calculated to give a standardised result for each model. The RMSE calculates the average magnitude of the errors in a set of forecasts (Chai & Draxler, 2014). In this data set, it shows how inaccurate the quality result of each wine was.
+
+Confusion matrices were used to describe the performance of models. They show how well models perform using test data. Confusion matrices are easy to understand when using a binary classifier, therefore, they could not be used to show the results of the linear models.    
+
+The Akaike Information Criterion (AIC) is another method for evaluating how well a model fits the data. It uses the number of independent variables to build a model, and how well the model reproduced the data (Bevans, 2020). The smaller the AIC value, the better the model fits. AIC was used on linear and logistic regression results to see which performed the best. 
+
+### Stepwise selection 
+
+Running models with irrelevant variables can lead to more complex functions. Stepwise selection is a way of looking at each variable to see how significant it is on the outcome variable, in this case wine quality.
+
+Regsubsets() function can be used to perform forward and backward stepwise selection. This is useful to see which variables produce the best subset and therefore are more significant on the outcome variable. 
+```{r, echo=FALSE, include=FALSE}
+## Regsubsets()
+regfit.full <- regsubsets(quality~., my_data, nvmax = 13)
+reg.summary <- summary(regfit.full) #best 2 variables are alcohol and volatile acidity
+reg.summary
+## How many variables are optimal
+reg.summary$adjr2
+plot(reg.summary$adjr2, xlab = "Number of variables", ylab = "Adjusted R Squared", type = "l")
+which.max(reg.summary$adjr2)
+points(11, reg.summary$adjr2[11], col = "red", cex = 2, pch = 20)
+# 11 variables is optimal
+
+## Forwards stepwise selection
+regfit.fwd <- regsubsets(quality~., data = my_data, nvmax = 13, method = "forward")
+reg.summary.fwd <- summary(regfit.fwd) #best 2 variables are alcohol and volatile acidity
+reg.summary.fwd
+plot(reg.summary.fwd$adjr2, xlab= "Number of variables", ylab = "Adjusted R Squared", type = "l")
+which.max(reg.summary.fwd$adjr2)
+points(11, reg.summary.fwd$adjr2[11], col = "red", cex = 2, pch = 20)
+
+## Backwards stepwise selection
+regfit.bwd <- regsubsets(quality~., data = my_data, nvmax = 13, method = "backward")
+reg.summary.bwd <- summary(regfit.bwd)
+reg.summary.bwd #best alcohol and volatile acidity
+plot(reg.summary.bwd$adjr2, xlab= "Number of variables", ylab = "Adjusted R Squared", type = "l")
+which.max(reg.summary.bwd$adjr2)
+points(11, reg.summary.bwd$adjr2[11], col = "red", cex = 2, pch = 20)
+
+## How do they differ?
+coef(regfit.full, 7)
+coef(regfit.fwd, 7)
+coef(regfit.bwd, 7)
+#backwards stepwise is different after 4
+```
+
+Forwards stepwise selection starts with a model containing no variables and adds them to the model starting with the most significant. Variables are added until either all the variables are used, or until a pre-specified stopping rule is reached.
+
+Backwards stepwise selection starts with all the variables in a model and removes them starting with the least significant variable. Variables are removed until there are no variables left, or until a pre-specified rule is reached. 
+
+Backwards stepwise is a better method when the variables are correlated with each other because unlike forward stepwise selection, all of the variables may be considered. Through exploratory data analysis it showed that some of the predictor variables were correlated, so therefore backward stepwise selection is the better method for this data set. (Choueiry, 2020)
+```{r, echo=F, include=FALSE}
+my_data1 <- my_data[,-1] #removes type variable
+cordata <- cor(my_data1)
+head(round(cordata,2))
+```
+
+```{r, echo=FALSE, include=F}
+corrplot(cordata, method = "color", type = "upper", main = "Wine quality correlations")
+
+plot(regfit.bwd, scale = "r2", main = "Backwards stepwise selection")
+```
+
+### Cross Validation
+K-fold cross validation is a method used to validate subset selection. It uses test and training data to ensure an accurate estimate of which model of a given size is best. 
+Firstly, a model is fitted only using training data. Subset selection is performed with each of the k training sets (k=10) and a matrix is created to store the results in.
+The predict() function cannot be used for regsubset(), so we must create our own "predict" formula.
+Finally, a loop is used to perform cross-validation, where predictions are made for each model size and then stored in the matrix. The mean errors that the cross validation found can then be plotted on a graph to clearly show which number of variables give the best model.
+
+```{r, echo=F, include=F}
+
+regfit.best <- regsubsets(quality~., data = train, nvmax = 13)
+coef(regfit.best, 12)
+reg.summary <- summary(regfit.best)
+
+##3.1 Create model
+k = 10
+set.seed(1)
+folds <- sample(1:k, nrow(my_data), replace = T)
+cv.errors <- matrix(NA, k, 12, dimnames = list(NULL, paste(1:12)))
+
+predict.regsubsets = function(object, newdata, id, ...) {
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id = id)
+  mat[, names(coefi)] %*% coefi
+}
+
+##3.2 Run prediction model
+for(j in 1:k){
+  best.fit <- regsubsets(quality~., data = my_data[folds!=j,],
+                        nvmax = 12)
+  for(i in 1:12){
+    pred <- predict(best.fit, my_data[folds==j,], id=i)
+    cv.errors[j, i]=mean((my_data$quality[folds==j]-pred)^2)
+  }
+}
+
+##3.3 Cross validation errors
+mean.cv.errors <- apply(cv.errors, 2, mean)
+mean.cv.errors
+
+##3.4 Plot results
+plot(mean.cv.errors, type = "b")
+which.min(mean.cv.errors)
+points(11, mean.cv.errors[11], col = "red", cex = 2, pch = 20)
+
+```
+
+Although Subset selection and Cross validation are useful models to gain a better understanding of the significance of each variable, and potentially the best subset, all the variables were kept in the main dataset to run each model. 
+
+### Linear regression
+
+Linear regression is the simplest approach to supervised learning. It assumes that the dependence of the outcome variable on the input variables is linear; which is rarely the case. Although it is simplistic and not always very accurate, it can be useful to get a basic understanding of the relationships within the data. A more useful form of linear regression is multiple linear regression, where more than one predictor variable can be tested at one time. This was the best linear regression model, but only produced 53.69 mean standard error (MSE), showing that linear regression didn’t fit our data very well.
+```{r, echo=F, include=FALSE}
+# Quality and alcohol
+lm.fit <- lm(quality~alcohol, data = train)
+summary(lm.fit)
+
+# Quality and all variables
+lm.fit1 <- lm(quality~., data = train)
+summary(lm.fit1)
+# Quality and all significant variables
+lm.fit2 <- lm(quality~. -fixed.acidity -citric.acid -chlorides -pH, data = train)
+summary(lm.fit2)
+
+# Polynomial linear regression with alcohol
+lm.fit3 <- lm(quality~poly(alcohol, 5), data = train)
+summary(lm.fit3)
+
+# How well did the linear models perform
+AIC(lm.fit) #10592.89 (simple linear with alcohol)
+AIC(lm.fit1) #10017.59 (simple linear with all variables)
+AIC(lm.fit2) #10045.82 (simple linear with all significant variables)
+AIC(lm.fit3) #10546 (polynomial linear regression with alcohol)
+
+# best model was the lm.fit1 (simple linear with all variables)
+
+# Testing linear models
+predictTest <- predict(lm.fit2, newdata = test)
+lm.MSE <- mean((test[,"quality"] - predictTest)^2) #0.54
+lm.RMSE <- sqrt(lm.MSE)
+lm.RMSE #0.733
+```
+
+```{r, echo=FALSE, include=F}
+# Plot quality and alcohol
+plot(train$alcohol,train$quality, data = my_data, xlab = "Alcohol", ylab = "Quality")
+abline(lm.fit, col = "red") #Doesn't fit the model very well
+```
+
+The outcome variable quality is an integer, while the predictor values are continuous. Therefore, predictions made by a linear regression model will not be an integer, making it difficult to explain the variation in quality using a linear model.
+
+To overcome this problem of predicting a single value, a new variable “rating” was created. This is a bivariable splitting quality into “good and “bad” wines based on quality being 6 or above for good and below 6 for bad. The test and train datasets needed to be updated to include this new variable.
+
+Creating the “rating” variable enabled predictions of the classification of the wines using logistic regression and decision trees. 
+```{r, echo=FALSE, include=FALSE}
+rating <- ifelse(as.integer(my_data$quality) > 6,1,0) #less than quality score 6 is bad, 6 or more quality score good
+my_data <- data.frame(my_data, rating)
+
+#add rating to the test and tain data
+set.seed(1)
+pd <- sample(2, nrow(my_data), replace = T, prob = c(0.7, 0.3))
+train <- my_data[pd==1,]
+test <- my_data[pd==2,]
+```
+
+### Logistic regression
+
+This model is suitable to find a relationship between a categorical or bivariate variable and predictor variables. In this study, the relationship is between the chemical factors and the quality of the wine. 
+
+Simple logistic regression uses just one variable to predict the outcome variable, this in effect, is the same as linear regression. The difference between linear and logistic regression becomes obvious when multiple variables are involved in predicting an outcome variable. Logistic regression works by applying the “maximum likelihood”(ML) estimation method. This is where the variables for which the probability of the observed data is at its maximum is identified (Melesse et al., 2016). Once a logistic model is created, this can then be tested on unseen test data.
+```{r, echo=F, include=FALSE}
+par(mfrow= c(1,1))
+glm.fit <- glm(my_data$rating~my_data$alcohol, family = "binomial", data = test)
+summary(glm.fit) #AIC 5471
+
+## 3.2 Logistic regression with all variables (except quality)
+glm.fit1 <- glm(test$rating~. -test$quality, data = test, family = "poisson")
+summary(glm.fit1) #AIC 1739.4
+
+## 3.3 Logistic regression with all significant variables
+glm.fit2 <- glm(rating~. -quality -type -citric.acid -chlorides -free.sulfur.dioxide -total.sulfur.dioxide, data = test, family = "poisson")
+summary(glm.fit2) #AIC 1746.5
+
+##3.4 Predicting wine quality with logistic regression
+prediction <- predict(glm.fit1, newdata = test, type = "response")
+
+table(test$rating, prediction >0.5) #above 0.5 is all good
+(1540+100)/(1540+100+292+64)
+#82.16%
+#glm.fit1 the best model and significantly more accurate than linear regression
+glm.MSE <- mean(predict(glm.fit1, newdata = test, type = "response")^2) #0.2354 (better)
+glm.RMSE <- sqrt(glm.MSE)
+glm.RMSE #0.485
+```
+
+```{r, echo=F, include=F}
+plot(train$alcohol, train$rating, xlab = "Alcohol", ylab = "Quality")
+abline(glm.fit, col = "red") #better fit
+```
+
+Multiple logistic regression was the best form of logistic regression for the wine dataset, including all of the predictor variables. This model gave an accuracy rate of 82.16% and RMSE 0.485. Although this method produced a very good result, decision trees were used to see if they could be improved further.
+
+### Decision trees
+
+Decision trees are a non-parametric classifier that doesn’t need any statistical assumptions regarding the distribution of data (Otukei and Blasche, 2009). They are known to produce more accurate results than other predictor models, but the performance of them can be improved further by pruning, boosting, bagging and random forests (Mahesh & Mather, 2003). 
+
+The basic structure of decision trees starts with one root node, a number of internal nodes and a set of terminal nodes. The nodes are determined based on the significance of each variable, stating with the most significant. From each node, data is split based on a decision and proceeds to the next node, until they reach a terminal node.
+Firstly, the “tree” package was loaded which is used for producing both classification and regression trees. To simplify the process, new datasets were created removing type and quality variables. New test and train datasets also need to be created with the new “tree data”.
+
+#### Pruning
+
+Pruning can be undertaken to remove any unnecessary variables, to simplify the tree and can improve the error rate.
+```{r, echo=F, include=FALSE}
+tree_data <- my_data[,2:14] #removing type variable as a character variable
+tree_data <- tree_data[,-12] #removing quality variable
+
+tree_train <- train[,2:14]
+tree_train <- tree_train[,-12]
+
+tree_test <- test[, 2:14]
+tree_test <- tree_test[,-12]
+
+#rating as a factor
+tree_train$rating <- as.factor(tree_train$rating) 
+tree_test$rating <- as.factor(tree_test$rating)
+
+tree1 <- tree(rating~., data = tree_train)
+summary(tree1) #error 18.31%
+```
+
+```{r, echo=F, include=F}
+plot(tree1)
+text(tree1) #"0" is good, "1" is bad
+```
+```{r, echo=F, include=FALSE}
+tree_prediction <- predict(tree1, newdata = tree_test, type = "class")
+test_rating <- tree_test[,"rating"] #taking only the rating column from the test data set
+
+table(tree_prediction, test_rating)
+
+(1550+74)/(1550+74+54+318) #81.37% 
+tree.MSE <- mean(predict(tree1, newdata = tree_test)^2)
+tree.MSE #0.376
+tree.RMSE <- sqrt(tree.MSE)
+tree.RMSE #0.612
+```
+```{r,echo=F, include=FALSE}
+#Pruning
+set.seed(1)
+cv.wine <- cv.tree(tree1, FUN = prune.misclass) #crossvalidation
+plot(cv.wine$size, cv.wine$dev, type = "b") #best after 3 varibales
+
+prune.wine <- prune.misclass(tree1, best = 3)
+summary(prune.wine) #error rate 18.31%
+plot(prune.wine)
+text(prune.wine, pretty = 0)
+
+##4.3 How well does the prunes tree perform?
+tree.pred <- predict(prune.wine, newdata = tree_test, type = "class")
+table(tree.pred, test_rating) 
+
+(1550+74)/(1550+74+54+318) #81.36%
+#performed the same as the unpruned tree
+pruned.MSE <- mean(predict(prune.wine, newdata = tree_test)^2)
+pruned.MSE #0.367
+pruned.RMSE <- sqrt(pruned.MSE)
+pruned.RMSE #0.606
+```
+```{r, echo=F, include=F}
+plot(prune.wine, main = "Pruned tree")
+text(prune.wine, pretty = 0)
+```
+
+#### Bagging and RandomForest
+
+Bagging uses the randomForest package. Bagging essentially splits the training data into numerous sets (normally between 50-500) to create multiple trees. The trees are then culminated into an aggregated prediction (Breiman, 1996).
+
+This method is useful as it is designed to increase stability and accuracy of algorithms. As it averages sets of data, it helps to reduce variance and minimise overfitting (Boehmke & Greenwell, 2020). 
+```{r, echo=F, include=FALSE}
+set.seed(1)
+bag.wine <- randomForest(rating~., data = tree_train, mtry = 12, importance = T) #uses full set of predictors
+
+yhat.bag <- predict(bag.wine, newdata = tree_test, type = "class")
+table(yhat.bag, test_rating)
+(1539+219)/(1539+219+173+65)
+#88.08% accuracy
+test_rating <- as.numeric(test_rating)
+yhat.bag <- as.numeric(yhat.bag)
+bagging.MSE <- mean((yhat.bag-test_rating)^2)
+bagging.MSE #0.119
+bagging.RMSE <- sqrt(bagging.MSE)
+bagging.RMSE #0.345
+```
+
+RandomForest works in exactly the same way as bagging, however, are modified to use the optimal number of variables. For classification trees, the optimal number of variables is given by sqrt(k). 
+```{r, echo=F, include=FALSE}
+#optimal number of variables = sqrt(K)
+sqrt(12)
+#optimal number of variables = 3.464102
+set.seed(1)
+rf_wine <- randomForest(rating~., data = tree_train, mtry = 3.46, importance = T)
+rf_prediction <- predict(rf_wine, newdata = tree_test, type = "class")
+
+table(rf_prediction, test_rating)
+(1552+208)/(1552+208+52+184)
+#88.18% this is the best model so far
+rf_prediction <- as.numeric(rf_prediction)
+RandomForest.MSE <- mean((rf_prediction-test_rating)^2)
+RandomForest.MSE #0.118
+RandomForest.RMSE <- sqrt(RandomForest.MSE)
+RandomForest.RMSE #0.344
+```
+
+#### Boosting
+
+Boosting algorithms use the “gbm” package in r. They differ to random forest, as it creates a number of “shallow” trees in sequence, learning and improving on the previous one. Boosting works best on models which have a high bias and low variance (Boehmke & Greenwell, 2020). Therefore, although boosting is a powerful tool, in this instance it did not improve on previous models as the dataset had low bias and high variance.
+```{r, echo=F, include=FALSE}
+set.seed(1)
+tree_train$rating <- as.character(tree_train$rating)
+boost_wine <- gbm(rating~., data = tree_train, distribution = "bernoulli", n.trees = 5000, interaction.depth = 4)
+
+pred_boost <- predict(boost_wine, newdata = tree_test, n.trees = 5000, type = "response")
+
+table(pred_boost > 0.5, test_rating)
+
+(1505+232)/(1505+232+99+160)
+#87.02% accurate
+pred_boost <- as.numeric(pred_boost)
+Boost.MSE <- mean((pred_boost-test_rating)^2)
+Boost.RMSE <- sqrt(Boost.MSE) 
+Boost.RMSE #1.070
+```
+
+#### Importance function
+
+Importance plots are a really clear way of showing which variables are the most significant to predicting the outcome variable. It produces two plots, the first shows the mean decrease in accuracy and the second the mean decrease in Gini. Mean decrease in accuracy measures the accuracy decrease when the variable is not included. Mean decrease in Gini measures the decrease in the Gini index when the variable is removed. The Gini plot uses the training data, so therefore the mean decrease in accuracy is the more accurate plot.
+
+Finally, decision trees were created separately for red and white wine to create Importance plots to see if the importance of variables differed between wine types.
+
+
+# Results
+
+### Which model predicted wine the most accurately?
+
+```{r, echo=FALSE}
+results <- data.frame(name = c("Linear regression", "Logistic regression", "Decision tree", "Pruned tree", "Bagging", "Random Forest", "Boosting"), 
+                      RMSE =c(0.733, 0.485, 0.613, 0.606, 0.345, 
+                               0.344, 1.07))
+
+results$name <- as.factor(results$name)
+
+bar <- results %>%
+  #ordering model names from best to worst
+  mutate(name = fct_reorder(name, RMSE)) %>%
+  ggplot( aes(x=name, y=RMSE)) +
+  geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+  #add bar labels
+  geom_text(aes(label=RMSE)) +
+  #flip the graph
+  coord_flip() +
+  xlab("Models") +
+  theme_bw()
+bar
+fig.cap <- "Fig 1. Model Performance"
+```
+
+Having tested many models on my data, random forest produced the most accurate results when trying to predict the quality of wines. The model considered all the chemical factors of wine to determine wine quality. As you can see from figure 1, Random forest gave the lowest root mean squared error of 0.344. This indicates that this method was only mispredicting quality of wines by 0.344. After performing a confusion matrix on my test and training data, RandomForest was giving an accuracy rate of 88.1% - this accuracy rating was the best from all of the models tried.
+
+### Which variables are most important for predicting wine quality?
+
+An Importance plot was used  to show which variables are the most important for determining wine quality.
+
+```{r, echo=F, include=TRUE}
+varImpPlot(rf_wine, main = "Random Forest Variable Importance")
+fig.cap <- "Fig 2. Variable Importance for Quality"
+```
+
+Alcohol is clearly the most important variable for determining wine quality, showing 85 mean decrease in accuracy. Volatile acidity and residual sugar are the next most significant giving a decrease of 63 and 60 mean accuracy respectively. Total sulfur dioxide was the least significant variable for determining wine quality, decreasing the mean accuracy by just 41. 
+
+### Are the chemical components affecting wine quality the same in red and white wine?
+
+Histograms initially showed that the distribution of wine quality is similar in red and white wines. White wine quality has a gaussian skew, whereas red wine quality showed a very slight positive skew. No wines scored above 9 and lower than 3.
+
+```{r, echo=F, include=TRUE}
+par(mfrow = c(1,2))
+hist(white$quality, col = "yellow", xlab = "Quality", main = "White wine quality")
+abline(v= mean(white$quality), col = "black", lty = 2, lwd = 3) #shows the mean
+fig.cap <- "Fig 3. White Wine Quality Distribution"
+
+hist(red$quality, col = "maroon", xlab = "Quality", main = "Red wine quality")
+abline(v = mean(red$quality), col = "black", lty = 2, lwd = 3)#shows the mean
+fig.cap <- "Fig 4. Red Wine Quality Distribution"
+
+```
+
+To investigate this further a corrograph was plotted for white and red wine to see if there were any obvious differences in correlation.
+
+```{r, echo=FALSE, include=TRUE}
+corplotwhite <- cor(white)
+corrplot(corplotwhite, method = "color", type = "upper", main = "White wine")
+fig.cap <- "Fig 4. Correlations in White Wine"
+```
+
+```{r, echo=FALSE, include=TRUE}
+corplotred <- cor(red)
+corrplot(corplotred, method = "color", type = "upper", main = "Red wine")
+fig.cap <- "Fig 5. Correlations in Red Wine"
+```
+
+We can clearly see that there were some differences in correlation between quality and the predictor variables, between the two graphs.
+
+```{r echo=FALSE, warning=FALSE, include=FALSE}
+#new variable for "good" white wine
+Good.white <- ifelse(white$quality<=6, 1, 0)
+white <- data.frame(white, Good.white)
+
+tree.white <- tree(as.factor(Good.white)~.-quality, white)
+summary(tree.white) #error rate 21.27%
+
+plot(tree.white)
+text(tree.white, pretty = 0)
+
+#test and train data
+set.seed(1)
+train.white <- sample(1:nrow(white), 2449)
+test.white <- white[-train.white,]
+
+Good.white.test = Good.white[-train.white]
+tree.white <- tree(as.factor(Good.white)~.-quality, white, subset = train.white)
+
+#prediction tree
+tree.pred <- predict(tree.white, test.white, type = "class")
+table(tree.pred, Good.white.test)
+(1827+124)/(1827+124+76+422)
+#79.67% accuracy
+
+#Pruning?
+set.seed(1)
+cv.white <- cv.tree(tree.white, FUN = prune.misclass) #cross validation
+
+plot(cv.white$size, cv.white$dev, type = "b") #best after 3
+
+prune.white <- prune.misclass(tree.white, best = 3) #pruned tree
+plot(prune.white)
+text(prune.white, pretty = 0)
+
+tree.pred <- predict(prune.white, test.white, type = "class")
+table(tree.pred, Good.white.test) 
+(1827+124)/(1827+124+76+422)
+
+#79.67% (same)
+
+# new variable for "good" red wine
+Good.red <- ifelse(red$quality<=6, 1, 0)
+red <- data.frame(red, Good.red)
+
+tree.red <- tree(as.factor(Good.red)~.-quality, red)
+summary(tree.red) #error rate 9.94%
+
+plot(tree.red)
+text(tree.red, pretty = 0)
+
+# test and train data
+set.seed(1)
+train.red <- sample(1:nrow(red), 798)
+test.red <- red[-train.red,]
+Good.red.test = Good.red[-train.red]
+
+tree.red <- tree(as.factor(Good.red)~.-quality, data = test.red)
+tree.pred <- predict(tree.red, test.red, type = "class")
+table(tree.pred, Good.red.test) 
+(68+674)/(68+674+41+18)
+#92.63% accuracy
+
+##4.4.2.2 prune?
+set.seed(1)
+cv.red <- cv.tree(tree.red, FUN=prune.misclass)
+plot(cv.red$size, cv.red$dev, type = "b") #best using 10 variables
+
+prune.red <- prune.misclass(tree.red, best = 10)
+plot(prune.red)
+text(prune.red, pretty = 0)
+
+tree.pred <- predict(prune.red, test.red, type = "class")
+
+table(tree.pred, Good.red.test) 
+(60+680)/(60+680+12+49)
+#92.38%
+```
+
+```{r echo=F, warning=FALSE, include=TRUE}
+par(mfrow= c(1,2))
+plot(prune.white, main = "White wine") #pruned tree better accuracy
+text(prune.white, pretty = 0)
+fig.cap <- "Fig 6. White Wine Tree"
+
+plot(tree.red, main = "Red wine") #unpruned tree better accuracy
+text(tree.red, pretty = 0)
+fig.cap <- "Fig 7. Red Wine Tree"
+```
+
+The decision trees are clearly quite different between red and white wines, although are both still showing that alcohol is the most important variable for predicting quality.
+
+```{r echo=F, warning=FALSE, include=T}
+par(mfrow=c(1,2))
+set.seed(1)
+white.fit <- randomForest(Good.white~. -quality, data = white, importance = T, ntree=2000)
+varImpPlot(white.fit, main = "White Wine Variable Importance")
+fig.cap <- "Fig 8. Variable Importance for White Wine"
+
+set.seed(1)
+red.fit <- randomForest(Good.red~. -quality, data = red, importance = T, ntree=2000)
+varImpPlot(red.fit, main = "Red Wine Variable Importance")
+fig.cap <- "Fig 9. Variable Importance for Red Wine"
+```
+
+Both of the importance plots also highlight how important the alcohol variable is in predicting wine quality, however, there are differences.
+
+Firstly, we can see that the scale is different between the plots, alcohol is more important in white wine than red wine.
+Another major difference is that free sulfur dioxide and pH are important variables for white wine, and yet are the least significant variables for red wine.
+
+# Conclusion
+
+Chemical factors of wine give sufficient information to accuraty predict wine through RandomForest. Alcohol was the most significant variable that influenced wine quality and total sulphur dioxide was the least significant. There are differences in which chemical factors affect white and red wine quality, although alcohol is still the most significant factor.
+
+# References
+Aaker, D. (1991). Managing Brand Equity. California: Free Press
+
+Bevans, R. (2020). *An intoduction to the Akaike information criterion*. Scribbr. Available at: https://www.scribbr.com/statistics/akaike-information-criterion/ (Accessed: 21th Nov. 2020)
+
+Boehmke, B. & Greenwell, B.M. (2020). Hands-On Machine Learning with R. Florida: CRC Press
+
+Botonaki, A. & Tsakiridou, E. (2004). Consumer response evaluation of a Greek quality wine. *Acta Agricola Scandinavia, Section C, Food Economics*, 1, 91–98.
+
+Breiman, L. 1996a. Bagging Predictors. Machine Learning 24 (2). Springer: 123–40.
+
+Chai, T. & Draxler, R. R. (2014). Root mean square error (RMSE) or mean absolute error (MAE)? - Arguments against avoiding RMSE in the literature. *Geoscientific Model Development*, 7(3), pp. 1247-1250.
+
+Choueiry, G. (2020). *Understanding Forward and backward Stepwise Regression*. Quantifying Health. Available at: https://quantifyinghealth.com/stepwise-selection/ (Accessed: 19th Nov. 2020)
+
+Elfman, Z. (2020). *Libation Frontiers: A deep dive into the world wine industry*. Available at: https://www.toptal.com/finance/market-sizing/wine-industry (Accessed: 26th Oct. 2020)
+
+Friendly, M. (2002). Corrgrams. *The American Statistician*, 54(4), pp.316-324.
+
+Melesse, S., Sobratee, N. & Workneh, T. (2016). Application of logistic regression statistical technique to evaluate tomato quality subjected to different pre- and post-harvest treatments. *Biological Agriculture & Horticulture*, 32:4, 277-287.
+
+Otukei, J.R. & Blaschke, T. (2009). Land cover change assessment using decision trees, support vector machines and maximum likelihood classification algorithms. *International Journal of Applied Earth Observation and Geoinformation*, 12:1, 27-31.
+
+Puckette, M. (2017). Red wine vs white wine: The real differences. *Wine Folly*. Available at: https://winefolly.com/tips/red-wine-vs-white-wine-the-real-differences/ (Accessed: 26th Oct. 2020)
+
+ViniPortugal. (2020). The wine sector. Available at: https://www.viniportugal.pt/WineSector (Accessed: 26th Oct. 2020)
+
